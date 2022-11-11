@@ -65,4 +65,5 @@ data_dir = {
 
     'ent2ids': '/ent2ids',
     'ent2vec': '/ent2vec.npy',
+    'rel2id': '/rel2ids',
 }
