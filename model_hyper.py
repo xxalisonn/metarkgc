@@ -127,6 +127,7 @@ class MetaR(nn.Module):
                 norm_q = norm_vector - self.beta*grad_meta
             else:
                 rel_q = rel
+                norm_q = norm_vector
 
             self.rel_q_sharing[curr_rel] = rel_q
             self.h_norm = norm_vector.mean(0)
