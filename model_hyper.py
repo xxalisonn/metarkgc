@@ -81,6 +81,7 @@ class MetaR(nn.Module):
         self.embedding_learner = EmbeddingLearner()
         self.loss_func = nn.MarginRankingLoss(self.margin)
         self.rel_q_sharing = dict()
+        self.h_norm = None
 
     def split_concat(self, positive, negative):
         pos_neg_e1 = torch.cat([positive[:, :, 0, :],
@@ -128,8 +129,13 @@ class MetaR(nn.Module):
                 rel_q = rel
 
             self.rel_q_sharing[curr_rel] = rel_q
+            self.h_norm = norm_vector.mean(0)
+            self.h_norm = self.h_norm.unsqueeze(0)
 
         rel_q = rel_q.expand(-1, num_q + num_n, -1, -1)
+                
+        if iseval:
+            norm_q = self.h_norm
 
         que_neg_e1, que_neg_e2 = self.split_concat(query, negative)  # [bs, nq+nn, 1, es]
         p_score, n_score = self.embedding_learner(que_neg_e1, que_neg_e2, rel_q, norm_q, num_q)
