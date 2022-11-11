@@ -122,13 +122,15 @@ class Trainer:
         if not iseval:
             self.optimizer.zero_grad()
             p_score, n_score = self.metaR(task, iseval, curr_rel)
-            y = torch.Tensor([1]).to(self.device)
+#             y = torch.Tensor([1]).to(self.device)
+            y = torch.ones(p_score.size()).cuda()
             loss = self.metaR.loss_func(p_score, n_score, y)
             loss.backward()
             self.optimizer.step()
         elif curr_rel != '':
             p_score, n_score = self.metaR(task, iseval, curr_rel)
-            y = torch.Tensor([1]).to(self.device)
+#             y = torch.Tensor([1]).to(self.device)
+            y = torch.ones(p_score.size()).cuda()
             loss = self.metaR.loss_func(p_score, n_score, y)
         return loss, p_score, n_score
 
