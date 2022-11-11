@@ -42,24 +42,68 @@ class RelationMetaLearner(nn.Module):
         return x.view(size[0], 1, 1, self.out_size)
 
 
+# class EmbeddingLearner(nn.Module):
+#     def __init__(self):
+#         super(EmbeddingLearner, self).__init__()
+
+#     def projected(self, ent, norm):
+#         norm = F.normalize(norm, p=2, dim=-1)
+#         return ent - torch.sum(ent * norm, dim = 1, keepdim=True) * norm
+
+#     def forward(self, h, t, r, norm, pos_num):
+#         norm = norm[:,:1,:,:]						# revise
+#         h = self.projected(h,norm)
+#         t = self.projected(t,norm)
+#         score = -torch.norm(h + r - t, 2, -1).squeeze(2)
+#         p_score = score[:, :pos_num]
+#         n_score = score[:, pos_num:]
+#         return p_score, n_score
+
 class EmbeddingLearner(nn.Module):
     def __init__(self):
         super(EmbeddingLearner, self).__init__()
 
-    def projected(self, ent, norm):
-        norm = F.normalize(norm, p=2, dim=-1)
-        return ent - torch.sum(ent * norm, dim = 1, keepdim=True) * norm
-
-    def forward(self, h, t, r, norm, pos_num):
-        norm = norm[:,:1,:,:]						# revise
-        h = self.projected(h,norm)
-        t = self.projected(t,norm)
+    def forward(self, h, t, r, pos_num):
         score = -torch.norm(h + r - t, 2, -1).squeeze(2)
         p_score = score[:, :pos_num]
         n_score = score[:, pos_num:]
         return p_score, n_score
 
+class LSTM_attn(nn.Module):
+    def __init__(self, embed_size=100, n_hidden=200, out_size=100, layers=1, dropout=0.5):
+        super(LSTM_attn, self).__init__()
+        self.embed_size = embed_size
+        self.n_hidden = n_hidden
+        self.out_size = out_size
+        self.layers = layers
+        self.dropout = dropout
+        self.lstm = nn.LSTM(self.embed_size*2, self.n_hidden, self.layers, bidirectional=True, dropout=self.dropout)
+        #self.gru = nn.GRU(self.embed_size*2, self.n_hidden, self.layers, bidirectional=True)
+        self.out = nn.Linear(self.n_hidden*2*self.layers, self.out_size)
 
+    def attention_net(self, lstm_output, final_state):
+        hidden = final_state.view(-1, self.n_hidden*2, self.layers)
+        attn_weight = torch.bmm(lstm_output, hidden).squeeze(2).cuda()
+        #batchnorm = nn.BatchNorm1d(5, affine=False).cuda()
+        #attn_weight = batchnorm(attn_weight)
+        soft_attn_weight = F.softmax(attn_weight, 1)
+        context = torch.bmm(lstm_output.transpose(1,2), soft_attn_weight)
+        context = context.view(-1, self.n_hidden*2*self.layers)
+        return context
+
+    def forward(self, inputs):
+        size = inputs.shape
+        inputs = inputs.contiguous().view(size[0], size[1], -1)
+        input = inputs.permute(1, 0, 2)
+        hidden_state = Variable(torch.zeros(self.layers*2, size[0], self.n_hidden)).cuda()
+        cell_state = Variable(torch.zeros(self.layers*2, size[0], self.n_hidden)).cuda()
+        output, (final_hidden_state, final_cell_state) = self.lstm(input, (hidden_state, cell_state))  # LSTM
+        output = output.permute(1, 0, 2)
+        attn_output = self.attention_net(output, final_cell_state)      # change log
+
+        outputs = self.out(attn_output)
+        return outputs.view(size[0], 1, 1, self.out_size)    
+    
 class MetaR(nn.Module):
     def __init__(self, dataset, parameter):
         super(MetaR, self).__init__()
@@ -72,11 +116,10 @@ class MetaR(nn.Module):
         self.embedding = Embedding(dataset, parameter)
 
         if parameter['dataset'] == 'Wiki-One':
-            self.relation_learner = RelationMetaLearner(parameter['few'], embed_size=50, num_hidden1=250,
-                                                        num_hidden2=100, out_size=50, dropout_p=self.dropout_p)
+            self.relation_learner = LSTM_attn(embed_size=50, n_hidden=100, out_size=50,layers=2, dropout=0.5)
         elif parameter['dataset'] == 'NELL-One':
-            self.relation_learner = RelationMetaLearner(parameter['few'], embed_size=100, num_hidden1=500,
-                                                        num_hidden2=200, out_size=100, dropout_p=self.dropout_p)
+            self.relation_learner = LSTM_attn(embed_size=100, n_hidden=450, out_size=100, layers=2, dropout=self.dropout_p)
+            
         self.h_embedding = H_Embedding(dataset, parameter)
         self.embedding_learner = EmbeddingLearner()
         self.loss_func = nn.MarginRankingLoss(self.margin)
@@ -93,7 +136,7 @@ class MetaR(nn.Module):
     def forward(self, task, iseval=False, curr_rel=''):
         # transfer task string into embedding
         support, support_negative, query, negative = [self.embedding(t) for t in task]
-        norm_vector = self.h_embedding(task[0])
+#         norm_vector = self.h_embedding(task[0])
         few = support.shape[1]              # num of few
         num_sn = support_negative.shape[1]  # num of support negative
         num_q = query.shape[1]              # num of query
@@ -114,7 +157,8 @@ class MetaR(nn.Module):
                 # split on e1/e2 and concat on pos/neg
                 sup_neg_e1, sup_neg_e2 = self.split_concat(support, support_negative)
 
-                p_score, n_score = self.embedding_learner(sup_neg_e1, sup_neg_e2, rel_s, norm_vector,few)
+#                 p_score, n_score = self.embedding_learner(sup_neg_e1, sup_neg_e2, rel_s, norm_vector,few)
+                p_score, n_score = self.embedding_learner(sup_neg_e1, sup_neg_e2, rel_s, few)
 
                 # y = torch.Tensor([1]).to(self.device)
                 y = torch.ones(p_score.size()).cuda()
@@ -139,6 +183,7 @@ class MetaR(nn.Module):
             norm_q = self.h_norm
 
         que_neg_e1, que_neg_e2 = self.split_concat(query, negative)  # [bs, nq+nn, 1, es]
-        p_score, n_score = self.embedding_learner(que_neg_e1, que_neg_e2, rel_q, norm_q, num_q)
+#         p_score, n_score = self.embedding_learner(que_neg_e1, que_neg_e2, rel_q, norm_q, num_q)
+        p_score, n_score = self.embedding_learner(que_neg_e1, que_neg_e2, rel_q, num_q)
 
         return p_score, n_score
