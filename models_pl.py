@@ -157,6 +157,7 @@ class MetaR(nn.Module):
         # rel = self.relation_learner(support)
 
         rel = self.pattern_learner(support_concat).unsqueeze(2)
+        rel = torch.mean(rel,dim=1,keepdim=True)
 
         rel.retain_grad()
 
