@@ -1,6 +1,6 @@
-from trainer import *
+from trainer_eval import *
 from params import *
-from data_loader import *
+from data_loader_eval import *
 import json
 
 if __name__ == '__main__':
