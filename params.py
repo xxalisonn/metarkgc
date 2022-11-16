@@ -26,6 +26,7 @@ def get_params():
     args.add_argument("-m", "--margin", default=1, type=float)
     args.add_argument("-p", "--dropout_p", default=0.5, type=float)
     args.add_argument("-abla", "--ablation", default=False, type=bool)
+    args.add_argument("-vbm", dest="vbm", action="store_true")
 
     args.add_argument("-gpu", "--device", default=0, type=int)
 
@@ -47,6 +48,8 @@ def get_params():
         params['embed_dim'] = 50
 
     params['device'] = torch.device('cuda:'+str(args.device))
+    if params["data_form"] not in ["Pre-Train","In-train"]:
+        params["rum"] = False
 
     return params
 
