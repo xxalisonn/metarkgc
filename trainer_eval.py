@@ -122,13 +122,13 @@ class Trainer:
         if not iseval:
             self.optimizer.zero_grad()
             p_score, n_score = self.metaR(task, iseval, curr_rel)
-            y = torch.ones(p_score.size()).cuda()
+            y = torch.Tensor([1]).to(self.device)
             loss = self.metaR.loss_func(p_score, n_score, y)
             loss.backward()
             self.optimizer.step()
         elif curr_rel != '':
             p_score, n_score = self.metaR(task, iseval, curr_rel)
-            y = torch.ones(p_score.size()).cuda()
+            y = torch.Tensor([1]).to(self.device)
             loss = self.metaR.loss_func(p_score, n_score, y)
         return loss, p_score, n_score
 
@@ -210,20 +210,19 @@ class Trainer:
             t += len(eval_task[0])
             _, p_score_bs, n_score_bs = self.do_one_step(eval_task, iseval=True, curr_rel=curr_rel)
 
-            for i in range(len(p_score_bs)):
-                # n_score = n_score_bs[i].unsqueeze(0)
-                # p_score = p_score_bs[i].unsqueeze(0)
-                # x = torch.cat([n_score, p_score], 1).squeeze()
-                n_score = n_score_bs[i]
-                p_score = p_score_bs[i]
-                x = torch.cat([n_score, p_score], 0)
-                self.rank_predict(data, x, ranks)
-                # print current temp data dynamically
-                for k in data.keys():
-                    temp[k] = data[k] / t
-                sys.stdout.write("{}\tMRR: {:.3f}\tHits@10: {:.3f}\tHits@5: {:.3f}\tHits@1: {:.3f}\r".format(
-                    t, temp['MRR'], temp['Hits@10'], temp['Hits@5'], temp['Hits@1']))
-                sys.stdout.flush()
+            # n_score = n_score_bs[i].unsqueeze(0)
+            # p_score = p_score_bs[i].unsqueeze(0)
+            # x = torch.cat([n_score, p_score], 1).squeeze()
+            n_score = n_score_bs[0]
+            p_score = p_score_bs[0]
+            x = torch.cat([n_score, p_score], 0)
+            self.rank_predict(data, x, ranks)
+            # print current temp data dynamically
+            for k in data.keys():
+                temp[k] = data[k] / t
+            sys.stdout.write("{}\tMRR: {:.3f}\tHits@10: {:.3f}\tHits@5: {:.3f}\tHits@1: {:.3f}\r".format(
+                t, temp['MRR'], temp['Hits@10'], temp['Hits@5'], temp['Hits@1']))
+            sys.stdout.flush()
 
         # print overall evaluation result and return it
         for k in data.keys():
