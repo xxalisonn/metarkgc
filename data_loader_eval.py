@@ -6,27 +6,27 @@ class DataLoader(object):
     def __init__(self, dataset, parameter, step='train'):
         self.curr_rel_idx = 0
         self.tasks = dataset[step+'_tasks']
+        self.boost_tasks = dataset['train_tasks']
         self.rel2candidates = dataset['rel2candidates']
         self.e1rel_e2 = dataset['e1rel_e2']
         self.all_rels = sorted(list(self.tasks.keys()))
+        self.boost_rels = sorted(list(self.boost_tasks.keys()))
         self.num_rels = len(self.all_rels)
         self.few = parameter['few']
         self.bs = parameter['batch_size']
         self.nq = parameter['num_query']
 
         if step != 'train':
-            self.num_tris = min([len(self.tasks[rel][self.few:]) for rel in self.all_rels])
-            self.eval_triples = {}
-            for i in range(self.num_tris):
-                self.eval_triples[i] = list()
-                for rel in self.all_rels:
-                    self.eval_triples[i].append(self.tasks[rel][self.few+i])
+            self.eval_triples = []
+            for rel in self.all_rels:
+                self.eval_triples.extend(self.tasks[rel][self.few:])
+            self.num_tris = len(self.eval_triples)
             self.curr_tri_idx = 0
 
     def next_one(self):
         # shift curr_rel_idx to 0 after one circle of all relations
         if self.curr_rel_idx % self.num_rels == 0:
-            # random.shuffle(self.all_rels)
+            random.shuffle(self.all_rels)
             self.curr_rel_idx = 0
 
         # get current relation and current candidates
@@ -69,30 +69,38 @@ class DataLoader(object):
         return support_triples, support_negative_triples, query_triples, negative_triples, curr_rel
 
     def next_batch(self):
-        next_batch_all = [self.next_one() for _ in range(self.num_rels)]
+        next_batch_all = [self.next_one() for _ in range(self.bs)]
 
         support, support_negative, query, negative, curr_rel = zip(*next_batch_all)
         return [support, support_negative, query, negative], curr_rel
 
     def next_batch_on_eval(self):
-        if self.curr_tri_idx == self.num_tris:
-            return "EOT", "EOT"
-        else:
-            next_batch_all = [self.next_one_on_eval() for _ in range(self.num_rels)]
-            support, support_negative, query, negative, curr_rel = zip(*next_batch_all)
-            self.curr_tri_idx += 1
+        org = [self.next_one_on_eval()]
+        neg_num = len(org[0][3])
+        for _ in range(self.bs-1):
+            org.append(self.get_eval_boost(neg_num))
 
-            return [support, support_negative, query, negative], curr_rel
+        support, support_negative, query, negative, curr_rel = zip(*org)
+        return [support, support_negative, query, negative], curr_rel
 
     def next_one_on_eval(self):
-        if self.curr_rel_idx % self.num_rels == 0:
-            self.curr_rel_idx = 0
+        if self.curr_tri_idx == self.num_tris:
+            return "EOT", "EOT"
 
         # get current triple
-        query_triple = self.eval_triples[self.curr_tri_idx][self.curr_rel_idx]
+        query_triple = self.eval_triples[self.curr_tri_idx]
+        self.curr_tri_idx += 1
         curr_rel = query_triple[1]
         curr_cand = self.rel2candidates[curr_rel]
         curr_task = self.tasks[curr_rel]
+
+        # construct negative triples
+        negative_triples = []
+        e1, rel, e2 = query_triple
+        for negative in curr_cand:
+            if (negative not in self.e1rel_e2[e1 + rel]) \
+                    and negative != e2:
+                negative_triples.append([e1, rel, negative])
 
         # get support triples
         support_triples = curr_task[:self.few]
@@ -111,21 +119,47 @@ class DataLoader(object):
                     shift += 1
             support_negative_triples.append([e1, rel, negative])
 
-        # construct negative triples
+        query_triple = [query_triple]
+
+        return support_triples, support_negative_triples, query_triple, negative_triples, curr_rel
+
+    def get_eval_boost(self,neg_num):
+        curr_rel = random.choice(self.boost_rels)
+        curr_cand = self.rel2candidates[curr_rel]
+
+        # get current tasks by curr_rel from all tasks and shuffle it
+        curr_tasks = self.boost_tasks[curr_rel]
+        curr_tasks_idx = np.arange(0, len(curr_tasks), 1)
+        curr_tasks_idx = np.random.choice(curr_tasks_idx, self.few + self.nq)
+        support_triples = [curr_tasks[i] for i in curr_tasks_idx[:self.few]]
+        query_triples = [curr_tasks[self.few]]
+
+        # construct support and query negative triples
+        support_negative_triples = []
+        for triple in support_triples:
+            e1, rel, e2 = triple
+            while True:
+                negative = random.choice(curr_cand)
+                if (negative not in self.e1rel_e2[e1 + rel]) and negative != e2:
+                    break
+            support_negative_triples.append([e1, rel, negative])
+
         negative_triples = []
-        e1, rel, e2 = query_triple
-        for negative in curr_cand:
-            if (negative not in self.e1rel_e2[e1 + rel]) \
-                    and negative != e2:
+        num = 0
+        while num < neg_num:
+            for triple in query_triples:
+                e1, rel, e2 = triple
+                while True:
+                    negative = random.choice(curr_cand)
+                    if (negative not in self.e1rel_e2[e1 + rel])  and negative != e2:
+                        break
                 negative_triples.append([e1, rel, negative])
+                num += 1
+        if len(negative_triples) > neg_num:
+            negative_triples = negative_triples[:neg_num]
 
-        # support_triples = [support_triples]
-        # support_negative_triples = [support_negative_triples]
-        # query_triple = [[query_triple]]
-        # negative_triples = [negative_triples]
-        # return [support_triples, support_negative_triples, query_triple, negative_triples], curr_rel
+        return support_triples, support_negative_triples, query_triples, negative_triples, curr_rel
 
-        return support_triples, support_negative_triples, [query_triple], negative_triples, curr_rel
 
     def next_one_on_eval_by_relation(self, curr_rel):
         if self.curr_tri_idx == len(self.tasks[curr_rel][self.few:]):
