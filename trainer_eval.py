@@ -207,7 +207,7 @@ class Trainer:
             if eval_task == 'EOT':
                 break
 
-            t += len(eval_task[0])
+            t += 1
             _, p_score_bs, n_score_bs = self.do_one_step(eval_task, iseval=True, curr_rel=curr_rel)
 
             # n_score = n_score_bs[i].unsqueeze(0)
