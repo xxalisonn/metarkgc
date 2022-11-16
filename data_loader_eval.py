@@ -75,6 +75,9 @@ class DataLoader(object):
         return [support, support_negative, query, negative], curr_rel
 
     def next_batch_on_eval(self):
+        if self.curr_tri_idx == self.num_tris:
+            return "EOT", "EOT"
+        
         org = [self.next_one_on_eval()]
         neg_num = len(org[0][3])
         for _ in range(self.bs-1):
