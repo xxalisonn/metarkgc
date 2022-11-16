@@ -50,13 +50,18 @@ class AttentionMatcher(nn.Module):
         self.gate_w = nn.Linear(embed_dim,1)
         self.gate_b = nn.Parameter(torch.FloatTensor(1))
 
-    def forward(self, M, N):
+    def forward(self, M, N,iseval):
         M = torch.squeeze(M)
-        N = torch.squeeze(N)
+        if not iseval:
+            N = torch.squeeze(N)
         # calculate the similarity score(mask the attn value of ground truth relation)
         mt = torch.matmul(N, M.transpose(0, 1))
-        diag = mt - torch.diag(torch.diag(mt))
-        attn_weight = torch.softmax(diag, dim=-1)
+        if not iseval:
+            diag = mt - torch.diag(torch.diag(mt))
+            attn_weight = torch.softmax(diag, dim=-1)
+        elif iseval:
+            mt[0] = 0
+            attn_weight = torch.softmax(mt, dim=-1)
         # multiply the score with relation prototype
         out_attn = torch.matmul(attn_weight, M)
         # set a gate for fusion(0<=gate<=1)
@@ -125,17 +130,22 @@ class EmbeddingLearner(nn.Module):
         return p_score, n_score
 
 class Classifier(nn.Module):
-    def __init__(self,embed_dim,bs):
+    def __init__(self,embed_dim,num_rel):
         super(Classifier, self).__init__()
-        self.class_matrix = nn.Linear(embed_dim,bs)
+        self.class_matrix = nn.Linear(embed_dim,num_rel)
         self.criterion = torch.nn.CrossEntropyLoss()
 
-    def forward(self,rel,bs):
+    def forward(self,rel,tag,iseval):
+        # if iseval:
+        #     print('eval',rel.size())
+        # elif not iseval:
+        #     print('print',rel.size())
         rel = torch.squeeze(rel)
+        if iseval:
+            rel = rel.unsqueeze(0)
         class_result = self.class_matrix(rel)
-        tag_ = [i for i in range(bs)]
-        tag = torch.tensor(tag_, dtype=torch.long).cuda()
-        loss = self.criterion(class_result,tag)
+        tag_ = torch.tensor(tag, dtype=torch.long).cuda()
+        loss = self.criterion(class_result,tag_)
         return loss
 
 class MetaR(nn.Module):
@@ -148,10 +158,12 @@ class MetaR(nn.Module):
         self.margin = parameter['margin']
         self.abla = parameter['ablation']
         self.bs = parameter['batch_size']
+        self.rel2id = dataset['rel2id']
+        self.all_num = len(self.rel2id)
         self.embedding = Embedding(dataset, parameter)
         self.pattern_learner = PatternLearner(input_channels=1)
         self.attention_matcher = AttentionMatcher(self.embed_dim)
-        self.relation_classifer = Classifier(self.embed_dim,self.bs)
+        self.relation_classifer = Classifier(self.embed_dim,self.all_num)
         self.relation_prototype = dict()
         self.relation_minus = dict()
         self.rel_q_sharing = dict()
@@ -197,35 +209,39 @@ class MetaR(nn.Module):
         pos_relation = self.get_relation(support.unsqueeze(2), mean=True)
         support_concat = self.concat_relation(support.unsqueeze(2), pos_relation)
 
-        # support.squeeze(2)
-        # rel = self.relation_learner(support)
-
         rel = self.pattern_learner(support_concat).unsqueeze(2)
         rel = torch.mean(rel, dim=1, keepdim=True)
 
-        rel = self.attention_matcher(rel, pos_relation.squeeze(2))
-        class_loss = self.relation_classifer(rel,self.bs)
+        curr_rel_id = []
+        if not iseval:
+            idx = 0
+            for relation in curr_rel:
+                curr_rel_id.append(self.rel2id[relation])
+                self.relation_prototype[relation] = rel[idx]
+                # self.relation_minus[relation] = pos_relation[idx]
+                idx += 1
+            rel = self.attention_matcher(rel, pos_relation.squeeze(2), iseval)
+            class_loss = self.relation_classifer(rel, curr_rel_id, iseval)
 
+        elif iseval:
+            # rel_boosted = rel.clone()
+            curr_rel_id.append(self.rel2id[curr_rel])
+            keylist = list(self.relation_prototype.keys())
+            rel_boosted = self.relation_prototype[keylist[0]].unsqueeze(2)
+            for _ in self.relation_prototype.keys():
+                rel_boosted = torch.cat((rel_boosted,self.relation_prototype[_].unsqueeze(2)),0)
+            rel_ = rel_boosted.clone().detach()
+            rel = self.attention_matcher(rel_, pos_relation.squeeze(2), iseval).squeeze(2).squeeze(2)
+            class_loss = self.relation_classifer(rel, curr_rel_id,iseval)
 
-        # elif iseval:
-        #     rel_ = rel.data
-        #     for i in range(4):
-        #         key = random.choice(list(self.relation_prototype.keys()))
-        #         _ = self.relation_prototype[key].unsqueeze(1)
-        #         __ = self.relation_minus[key].unsqueeze(1)
-        #         rel_ = torch.cat((rel_,_),dim = 0)
-        #         pos_relation = torch.cat((pos_relation,__),dim = 0)
-        #
-        #     rel_att = self.attention_matcher(rel_, pos_relation.squeeze(2))
-        #     class_loss = self.relation_classifer(rel_att, iseval)
-        #     rel = rel_att[0].unsqueeze(1)
-
+        # support.squeeze(2)
+        # rel = self.relation_learner(support)
         # relation for support
-        rel.retain_grad()
-        rel_s = rel[0].unsqueeze(1).expand(-1, few+num_sn, -1, -1)
 
-        # because in test and dev step, same relation uses same support,
-        # so it's no need to repeat the step of relation-meta learning
+        # because in test and dev step, same relation uses same support, so it's no need to repeat the step of relation-meta learning
+        rel.retain_grad()
+        rel_s = rel.expand(-1, few + num_sn, -1, -1)
+
         if iseval and curr_rel != '' and curr_rel in self.rel_q_sharing.keys():
             rel_q = self.rel_q_sharing[curr_rel]
         else:
@@ -243,12 +259,6 @@ class MetaR(nn.Module):
                 grad_meta = rel.grad
                 rel_q = rel - self.beta*grad_meta
 
-                if not iseval:
-                    idx = 0
-                    for relation in curr_rel:
-                        self.relation_prototype[relation] = rel_q[idx]
-                        self.relation_minus[relation] = pos_relation[idx]
-                        idx += 1
             else:
                 rel_q = rel
 
