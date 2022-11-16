@@ -1,4 +1,4 @@
-from models import *
+from models_pl import *
 from tensorboardX import SummaryWriter
 import os
 import sys
