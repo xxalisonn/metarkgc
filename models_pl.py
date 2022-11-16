@@ -108,7 +108,7 @@ class MetaR(nn.Module):
         self.embed_dim = parameter['embed_dim']
         self.margin = parameter['margin']
         self.abla = parameter['ablation']
-        self.vbm = parameter["vbm"]
+        self.rum = parameter["rum"]
         self.input_channels = 2 if self.rum else 1
         self.embedding = Embedding(dataset, parameter)
         self.pattern_learner = PatternLearner(input_channels=1)
