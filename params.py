@@ -26,7 +26,7 @@ def get_params():
     args.add_argument("-m", "--margin", default=1, type=float)
     args.add_argument("-p", "--dropout_p", default=0.5, type=float)
     args.add_argument("-abla", "--ablation", default=False, type=bool)
-    args.add_argument("-vbm", dest="vbm", action="store_true")
+    args.add_argument("-rum", dest="rum", action="store_true")
 
     args.add_argument("-gpu", "--device", default=0, type=int)
 
