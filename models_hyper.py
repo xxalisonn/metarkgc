@@ -125,15 +125,15 @@ class EmbeddingLearner(nn.Module):
         return p_score, n_score
 
 class Classifier(nn.Module):
-    def __init__(self,embed_dim):
+    def __init__(self,embed_dim,bs):
         super(Classifier, self).__init__()
-        self.class_matrix = nn.Linear(embed_dim,5)
+        self.class_matrix = nn.Linear(embed_dim,bs)
         self.criterion = torch.nn.CrossEntropyLoss()
 
-    def forward(self,rel):
+    def forward(self,rel,bs):
         rel = torch.squeeze(rel)
         class_result = self.class_matrix(rel)
-        tag_ = [i for i in range(5)]
+        tag_ = [i for i in range(bs)]
         tag = torch.tensor(tag_, dtype=torch.long).cuda()
         loss = self.criterion(class_result,tag)
         return loss
@@ -147,10 +147,11 @@ class MetaR(nn.Module):
         self.embed_dim = parameter['embed_dim']
         self.margin = parameter['margin']
         self.abla = parameter['ablation']
+        self.bs = parameter['batch_size']
         self.embedding = Embedding(dataset, parameter)
         self.pattern_learner = PatternLearner(input_channels=1)
         self.attention_matcher = AttentionMatcher(self.embed_dim)
-        self.relation_classifer = Classifier(self.embed_dim)
+        self.relation_classifer = Classifier(self.embed_dim,self.bs)
         self.relation_prototype = dict()
         self.relation_minus = dict()
         self.rel_q_sharing = dict()
@@ -203,7 +204,7 @@ class MetaR(nn.Module):
         rel = torch.mean(rel, dim=1, keepdim=True)
 
         rel = self.attention_matcher(rel, pos_relation.squeeze(2))
-        class_loss = self.relation_classifer(rel)
+        class_loss = self.relation_classifer(rel,self.bs)
 
 
         # elif iseval:
