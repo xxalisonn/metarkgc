@@ -5,6 +5,7 @@ import torch.nn.functional as F
 import torch
 from torch.nn.modules.conv import Conv1d, Conv2d
 from torch.nn.modules.activation import ReLU
+import random
 
 class RelationMetaLearner(nn.Module):
     def __init__(self, few, embed_size=100, num_hidden1=500, num_hidden2=200, out_size=100, dropout_p=0.5):
@@ -123,6 +124,19 @@ class EmbeddingLearner(nn.Module):
         n_score = score[:, pos_num:]
         return p_score, n_score
 
+class Classifier(nn.Module):
+    def __init__(self,embed_dim):
+        super(Classifier, self).__init__()
+        self.class_matrix = nn.Linear(embed_dim,5)
+        self.criterion = torch.nn.CrossEntropyLoss()
+
+    def forward(self,rel):
+        rel = torch.squeeze(rel)
+        class_result = self.class_matrix(rel)
+        tag_ = [i for i in range(5)]
+        tag = torch.tensor(tag_, dtype=torch.long).cuda()
+        loss = self.criterion(class_result,tag)
+        return loss
 
 class MetaR(nn.Module):
     def __init__(self, dataset, parameter):
@@ -136,7 +150,9 @@ class MetaR(nn.Module):
         self.embedding = Embedding(dataset, parameter)
         self.pattern_learner = PatternLearner(input_channels=1)
         self.attention_matcher = AttentionMatcher(self.embed_dim)
+        self.relation_classifer = Classifier(self.embed_dim)
         self.relation_prototype = dict()
+        self.relation_minus = dict()
         self.rel_q_sharing = dict()
 
         if parameter['dataset'] == 'Wiki-One':
@@ -184,14 +200,28 @@ class MetaR(nn.Module):
         # rel = self.relation_learner(support)
 
         rel = self.pattern_learner(support_concat).unsqueeze(2)
-        rel = torch.mean(rel,dim=1,keepdim=True)
-        rel = self.attention_matcher(rel,pos_relation.squeeze(2))
+        rel = torch.mean(rel, dim=1, keepdim=True)
 
-        rel.retain_grad()
+        rel = self.attention_matcher(rel, pos_relation.squeeze(2))
+        class_loss = self.relation_classifer(rel)
 
+
+        # elif iseval:
+        #     rel_ = rel.data
+        #     for i in range(4):
+        #         key = random.choice(list(self.relation_prototype.keys()))
+        #         _ = self.relation_prototype[key].unsqueeze(1)
+        #         __ = self.relation_minus[key].unsqueeze(1)
+        #         rel_ = torch.cat((rel_,_),dim = 0)
+        #         pos_relation = torch.cat((pos_relation,__),dim = 0)
+        #
+        #     rel_att = self.attention_matcher(rel_, pos_relation.squeeze(2))
+        #     class_loss = self.relation_classifer(rel_att, iseval)
+        #     rel = rel_att[0].unsqueeze(1)
 
         # relation for support
-        rel_s = rel.expand(-1, few+num_sn, -1, -1)
+        rel.retain_grad()
+        rel_s = rel[0].unsqueeze(1).expand(-1, few+num_sn, -1, -1)
 
         # because in test and dev step, same relation uses same support,
         # so it's no need to repeat the step of relation-meta learning
@@ -206,11 +236,18 @@ class MetaR(nn.Module):
 
                 y = torch.ones(p_score.size()).cuda()
                 self.zero_grad()
-                loss = self.loss_func(p_score, n_score, y)
+                loss = self.loss_func(p_score, n_score, y) + class_loss
                 loss.backward(retain_graph=True)
 
                 grad_meta = rel.grad
                 rel_q = rel - self.beta*grad_meta
+
+                if not iseval:
+                    idx = 0
+                    for relation in curr_rel:
+                        self.relation_prototype[relation] = rel_q[idx]
+                        self.relation_minus[relation] = pos_relation[idx]
+                        idx += 1
             else:
                 rel_q = rel
 
