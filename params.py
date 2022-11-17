@@ -48,7 +48,7 @@ def get_params():
         params['embed_dim'] = 50
 
     params['device'] = torch.device('cuda:'+str(args.device))
-    if params["data_form"] not in ["Pre-Train","In-train"]:
+    if params["data_form"] not in ["Pre-Train","In-Train"]:
         params["rum"] = False
 
     return params
