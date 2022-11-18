@@ -188,6 +188,7 @@ class Trainer:
         self.metaR.eval()
         # clear sharing rel_q
         self.metaR.rel_q_sharing = dict()
+        self.metaR.rel_q_plus_sharing = dict()
 
         if istest:
             data_loader = self.test_data_loader
