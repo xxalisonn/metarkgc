@@ -42,7 +42,7 @@ if __name__ == '__main__':
     print("loading ent2id ... ...")
     dataset['ent2id'] = json.load(open(data_dir['ent2ids']))
     print("loading rel2id ... ...")
-#     dataset['rel2id'] = json.load(open(data_dir['rel2id']))
+    dataset['rel2id'] = json.load(open(data_dir['rel2id']))
 
     if params['data_form'] == 'Pre-Train':
         print('loading embedding ... ...')
