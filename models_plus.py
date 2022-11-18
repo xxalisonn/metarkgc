@@ -273,6 +273,7 @@ class MetaR(nn.Module):
 
         if iseval and curr_rel != '' and curr_rel in self.rel_q_sharing.keys():
             rel_q = self.rel_q_sharing[curr_rel]
+            rel_q_plus = self.rel_q_plus_sharing[curr_rel]
         else:
             if not self.abla:
                 # split on e1/e2 and concat on pos/neg
