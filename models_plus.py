@@ -133,10 +133,10 @@ class EmbeddingLearner(nn.Module):
     def __init__(self):
         super(EmbeddingLearner, self).__init__()
 
-    def forward(self, h, t, r, hp, tp, rp, pos_num):					# revise
+    def forward(self, h, t, r, hp, tp, rp, pos_num, alpha):					# revise
         score_minus = -torch.norm(h + r - t, 2, -1).squeeze(2)
         score_plus = -torch.norm(hp - rp - tp, 2, -1).squeeze(2)
-        score = score_plus + score_minus
+        score = alpha * score_plus + score_minus
         p_score = score[:, :pos_num]
         n_score = score[:, pos_num:]
         return p_score, n_score
@@ -169,6 +169,7 @@ class MetaR(nn.Module):
         self.embed_dim = parameter['embed_dim']
         self.margin = parameter['margin']
         self.abla = parameter['ablation']
+        self.alpha = parameter['alpha']
         self.bs = parameter['batch_size']
         self.rel2id = dataset['rel2id']
         self.all_num = len(self.rel2id)
@@ -281,7 +282,7 @@ class MetaR(nn.Module):
                 sup_neg_e1_plus, sup_neg_e2_plus = self.split_concat(support_plus, support_negative_plus)
 
                 # p_score, n_score = self.embedding_learner(sup_neg_e1, sup_neg_e2, rel_s,few)
-                p_score, n_score = self.embedding_learner(sup_neg_e1, sup_neg_e2, rel_s, sup_neg_e1_plus, sup_neg_e2_plus, rel_plus, few)
+                p_score, n_score = self.embedding_learner(sup_neg_e1, sup_neg_e2, rel_s, sup_neg_e1_plus, sup_neg_e2_plus, rel_plus, few, self.alpha)
 
                 y = torch.ones(p_score.size()).cuda()
                 self.zero_grad()
@@ -307,6 +308,6 @@ class MetaR(nn.Module):
         que_neg_e1, que_neg_e2 = self.split_concat(query, negative)  # [bs, nq+nn, 1, es]
         que_neg_e1_plus, que_neg_e2_plus = self.split_concat(query_plus, negative_plus)
         # p_score, n_score = self.embedding_learner(que_neg_e1, que_neg_e2, rel_q, num_q)
-        p_score, n_score = self.embedding_learner(que_neg_e1, que_neg_e2, rel_q, que_neg_e1_plus, que_neg_e2_plus, rel_q_plus, num_q)
+        p_score, n_score = self.embedding_learner(que_neg_e1, que_neg_e2, rel_q, que_neg_e1_plus, que_neg_e2_plus, rel_q_plus, num_q,self.alpha)
 
         return p_score, n_score
