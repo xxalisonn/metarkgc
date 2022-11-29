@@ -1,4 +1,4 @@
-from models_vdm import *
+from models import *
 from tensorboardX import SummaryWriter
 import os
 import sys
