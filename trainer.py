@@ -158,7 +158,8 @@ class Trainer:
             if e % self.eval_epoch == 0 and e != 0:
                 print('Epoch  {} has finished, validating...'.format(e))
 
-                valid_data = self.eval(istest=False, epoch=e)
+                valid_data = self.eval_by_relation(istest=False, epoch=e)
+#                 valid_data = self.eval(istest=False, epoch=e)
                 self.write_validating_log(valid_data, e)
 
                 metric = self.parameter['metric']
